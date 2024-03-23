@@ -5,30 +5,58 @@ use opencv::{
 use std::net::TcpListener;
 use std::io::Write;
 use std::fmt::Display;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:8080").expect("Failed to bind to port 8080");
     println!("Server listening on port 8080");
 
-    let mut cam = videoio::VideoCapture::new(0, videoio::CAP_ANY).expect("Failed to get video capture");
-    let mut frame = Mat::default();
-    let mut buf = Vector::new();
+    let cam = Arc::new(Mutex::new(videoio::VideoCapture::new(0, videoio::CAP_ANY).expect("Failed to get video capture")));
+
+    for stream_result in listener.incoming() {
+        match stream_result {
+            Ok(mut stream) => {
+                let cam = cam.clone();
+                let _ = thread::spawn(move || {
+                    handle_client(&mut stream, &cam);
+                });
+            }
+            Err(err) => {
+                println!("Error accepting connection: {}", err);
+            }
+        }
+    }
+}
+
+fn handle_client(stream: &mut std::net::TcpStream, cam: &Arc<Mutex<videoio::VideoCapture>>) {
+    println!("New client connected");
 
     loop {
-        let (mut stream, requester_address) = listener.accept().expect("Failed to accept connection");
-
-        println!("Requester address: {}", requester_address);
-
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n"
         );
-
-        stream.write_all(response.as_bytes()).unwrap();
+        if let Err(err) = stream.write_all(response.as_bytes()) {
+            print_error(err);
+            break;
+        }
 
         loop {
-            cam.read(&mut frame).expect("Failed to capture frame");
+            let mut cam = cam.lock().expect("Failed to lock VideoCapture");
+
+            let mut frame = Mat::default();
+            let mut buf = Vector::new();
+
+            if let Err(err) = cam.read(&mut frame) {
+                print_error(err);
+                break;
+            }
+
             buf.clear();
-            let _ = imgcodecs::imencode(".jpg", &frame, &mut buf, &Vector::new());
+            if let Err(err) = imgcodecs::imencode(".jpg", &frame, &mut buf, &Vector::new()) {
+                print_error(err);
+                break;
+            }
 
             let image_data = format!(
                 "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
@@ -51,6 +79,8 @@ fn main() {
                 print_error(err);
                 break;
             }
+
+            drop(cam);
         }
     }
 }
