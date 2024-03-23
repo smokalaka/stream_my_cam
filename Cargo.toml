@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 opencv = "0.89.0"
+crossbeam = "0.8.4"
