@@ -19,10 +19,6 @@ fn main() {
 
         println!("Requester address: {}", requester_address);
 
-        cam.read(&mut frame).expect("Failed to capture frame");
-        buf.clear();
-        let _ = imgcodecs::imencode(".jpg", &frame, &mut buf, &Vector::new());
-
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n"
         );
